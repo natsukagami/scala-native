@@ -11,14 +11,16 @@
 #define __returnstwice __attribute__((returns_twice))
 
 typedef struct ContHandler {
-    void *stack_top;
+    void *stack_btm;
     void *ret;
-    jmp_buf buf;
+    int label;
+    void *buf[20];
 } ContHandler;
 
 typedef struct ContFragment {
     void *fragment;
     ptrdiff_t fragment_size;
+    void *top;
 } ContFragment;
 
 static __noinline void *stack_top(void *top) { return top; }
@@ -26,7 +28,7 @@ static __noinline void *stack_top(void *top) { return top; }
 __returnstwice ContHandler *cont_save_handler() {
     ContHandler *h = alloca(sizeof(ContHandler));
     void *base = NULL;
-    h->stack_top =
+    h->stack_btm =
         stack_top(&base); // might not be enough, you might wanna capture stack
                           // all the way up to the last fn
     h->ret = NULL;
@@ -36,24 +38,23 @@ __returnstwice ContHandler *cont_save_handler() {
     // return NULL;
 }
 
-__noreturn void resume_to_handler(ContHandler *h) {
-    printf("jumping to %p\n", h->stack_top);
-    longjmp(h->buf, 1);
-}
-
-ContFragment cont_capture_to_handler(ContHandler *handler) {
+ContFragment *cont_capture_to_handler(ContHandler *handler) {
     void *base = NULL;
-    void *top = stack_top(&base);
-    assert(top < handler->stack_top); // stack grows downwards, right?
     // ContResumption *r = scalanative_alloc(NULL, sizeof(ContResumption));
-    ContFragment f = {.fragment_size = handler->stack_top - top,
-                      .fragment = NULL};
-    printf("!copying %lu bytes\n", f.fragment_size);
-    f.fragment = malloc(f.fragment_size);
+    ContFragment *f = malloc(sizeof(ContFragment));
+    f->top = stack_top(&base);
+    assert(f->top < handler->stack_btm); // stack grows downwards, right?
+    f->fragment_size = handler->stack_btm - f->top;
+    f->fragment = malloc(f->fragment_size);
     // r->stack_fragment = scalanative_alloc(NULL, r->fragment_size);
-    memcpy(f.fragment, top, f.fragment_size);
+    memcpy(f->fragment, f->top, f->fragment_size);
+    printf("!!copying %lu bytes, from %p to %p (handler = %p)\n",
+           f->fragment_size, f->top, handler->stack_btm, handler);
     // TODO: what to do with jmp_buf?
     return f;
 }
 
-// void cont_resume(ContResumption *r) {}
+// extern void _lh_longjmp(void *jmpbuf, int arg);
+
+// void do_resume(void *fragment, ptrdiff_t fragment_size, void *f_stacktop,
+// void *#)
