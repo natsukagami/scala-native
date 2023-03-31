@@ -13,12 +13,11 @@ object Test {
       prompt[FInt] {
         var a = 1
         var b = 1
-        inline def s() = suspend[FInt, Unit] { resumption => {
-          println(s"resuming with $a")
-          Continue(a, r => resume(resumption, r))
-        } }
         while true do 
-          s()
+          suspend[FInt, Unit] { resumption => {
+            println(s"resuming with $a")
+            Continue(a, r => resume(resumption, r))
+          } }
           val c = a + b
           println(s"fib $a $b $c")
           a = b
@@ -27,12 +26,12 @@ object Test {
         ???
       }
 
-    var f = (x: Unit) => fib()
+    var f = fib()
     for (i <- 1 to 10) {
-      f(()) match {
+      f match {
         case Continue(v, next) => {
           println(s"$i = $v")
-          f = next
+          f = next(())
         }
       }
     }

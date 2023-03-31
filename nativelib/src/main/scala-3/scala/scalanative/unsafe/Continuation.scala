@@ -64,6 +64,13 @@ object Continuation:
   ): T =
     import ContinuationImpl.*
     import Handler.*
+    val top = stackalloc[Ptr[Byte]]()
+    var find = top
+    var off = 0
+    while (find.toLong < stackBtm.toLong)
+      find = find + 1
+      off = off + 1
+      if ((!find).toLong > top.toLong) println(s"some $find ${(!find).toLong} ${top.toLong} $off ${stackBtm - find.asInstanceOf[Ptr[Byte]]}")
     val handler = newHandler(stackBtm)
     @volatile val label = handler._3
     println(s"old stack btm = $stackBtm, label = $label, handler = $handler")
@@ -81,7 +88,7 @@ object Continuation:
   /** Runs `ret` and return the value `T` back to the prompt, while suspending
    *  until resumed with return value `R`.
    */
-  def suspend[T, R](
+  @noinline def suspend[T, R](
       ret: Resumption[R, T] => T
   )(using l: Label[T], tt: Tag[T], tr: Tag[R]): R =
     @volatile val returnPtr = stackalloc[R]()
@@ -97,7 +104,7 @@ object Continuation:
     else
       // println(s"returnPtr after = ${returnPtr.asInstanceOf[Ptr[Byte]] + jmp} (jmp = $jmp)")
       // TODO: how to find
-      !(returnPtr.asInstanceOf[Ptr[Byte]] + jmp).asInstanceOf[Ptr[R]]
+      !(returnPtr.asInstanceOf[Ptr[Byte]] + (jmp - 1)/2).asInstanceOf[Ptr[R]]
       // !resume.ptrToR
 
   /** Resumes the resumption `r`, passing it the value `value`. */
@@ -114,10 +121,12 @@ object Continuation:
     push_handler(newHandlers)
     prepareResume(diff, !buf, r)
     val postStack = r.resume.ptrToR(next)
-    println(s"copying stack to ${next} ~ $btm, postStack = $postStack")
+    println(s"copying stack (at ${r.resume.stackFragment} to ${next} ~ $btm, postStack = $postStack")
     // copy stack! don't use memcpy here because its stack will be overwritten
     while (i < r.resume.fragmentSize) do
       !(next + i) = !(r.resume.stackFragment + i)
+      if r.resume.fragmentSize - i == 64 then
+        !((next + i).asInstanceOf[Ptr[Ptr[Byte]]]) = !((next + i).asInstanceOf[Ptr[Ptr[Byte]]]) + diff
       i += 1
     // I don't think you should do this
     // fix the handlers themselves
@@ -125,7 +134,9 @@ object Continuation:
     // set return value
     !postStack = value
     // longjmp time...
-    longjmp(buf.rawptr, diff.toInt)
+    val ret = longjmp(buf.rawptr, diff.toInt * 2 + 1)
+    println("coming back here with $ret")
+    ret
 
 
   def prepareResume[T, R](
